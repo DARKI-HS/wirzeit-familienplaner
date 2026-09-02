@@ -38,6 +38,7 @@ const LEGACY_AUTH_STORAGE_KEY = "sb-nahkeogrdxdyakowqcqz-auth-token";
 const APP_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const SUPABASE_URL = "https://nahkeogrdxdyakowqcqz.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_1qEEirZJcxeEXgPSIw_6qg__y8wWgY7";
+const VAPID_PUBLIC_KEY = "BA9LArpN-5lj5vLZoSZsYs8D0ohrx3tLqwDFbG7jQpIVkDCZ5sQMbRtgBXSPMGqx3Qns4D_cnvwqRzBsfzht3pE";
 
 function getQueue(): OfflineItem[] {
   try { return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? "[]") as OfflineItem[]; }
@@ -63,6 +64,13 @@ function initials(name: string) {
 }
 
 function snapshotKey(profileId: string) { return `wirzeit-snapshot-${profileId}`; }
+
+function base64UrlToUint8Array(value: string) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = atob(base64);
+  return Uint8Array.from(bytes, character => character.charCodeAt(0));
+}
 
 function restoreSnapshot(profileId: string): Snapshot | null {
   try { return JSON.parse(localStorage.getItem(snapshotKey(profileId)) ?? "null") as Snapshot | null; }
@@ -90,6 +98,28 @@ export function Familienplaner() {
     const index = profiles.findIndex(member => member.id === id);
     return COLORS[index >= 0 ? index % COLORS.length : 0];
   }, [profiles]);
+
+  const savePushSubscription = useCallback(async (client: SupabaseClient, current: Profile) => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("Push wird nicht unterstützt");
+    const registration = await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    const subscription = existing ?? await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64UrlToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    const json = subscription.toJSON();
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("Push-Abonnement ist unvollständig");
+    const { error } = await client.from("push_subscriptions").upsert({
+      profile_id: current.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      user_agent: navigator.userAgent,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "endpoint" });
+    if (error) throw error;
+    return registration;
+  }, []);
 
   const loadFamilyData = useCallback(async (client: SupabaseClient, current: Profile) => {
     const [profileResult, eventResult, recipientResult, messageResult] = await Promise.all([
@@ -257,6 +287,11 @@ export function Familienplaner() {
   }, [flushQueue, profile, supabase]);
 
   useEffect(() => {
+    if (!supabase || !profile || !("Notification" in window) || Notification.permission !== "granted") return;
+    void savePushSubscription(supabase, profile).catch(() => setNotice("Push-Verbindung konnte nicht erneuert werden"));
+  }, [profile, savePushSubscription, supabase]);
+
+  useEffect(() => {
     if (!supabase || !profile) return;
     const refresh = () => void loadFamilyData(supabase, profile).catch(() => undefined);
     const channel = supabase.channel(`family-${profile.family_id}`)
@@ -380,12 +415,16 @@ export function Familienplaner() {
   }
 
   async function requestNotifications() {
+    if (!supabase || !profile) return;
     if (!("Notification" in window)) { setNotice("Dieser Browser unterstützt keine Benachrichtigungen"); return; }
     const permission = await Notification.requestPermission();
-    setNotice(permission === "granted" ? "Browser-Benachrichtigungen aktiviert" : "Browser-Benachrichtigungen nicht erlaubt");
-    if (permission === "granted") {
-      const registration = await navigator.serviceWorker?.ready;
-      if (registration) await registration.showNotification("WirZeit", { body: "Benachrichtigungen sind auf diesem Gerät aktiviert.", icon: `${APP_BASE_PATH}/icon-192.png`, badge: `${APP_BASE_PATH}/favicon-32.png` });
+    if (permission !== "granted") { setNotice("Browser-Benachrichtigungen nicht erlaubt"); return; }
+    try {
+      const registration = await savePushSubscription(supabase, profile);
+      setNotice("Push-Benachrichtigungen aktiviert");
+      await registration.showNotification("WirZeit", { body: "Push-Benachrichtigungen sind auf diesem Gerät aktiviert.", icon: `${APP_BASE_PATH}/icon-192.png`, badge: `${APP_BASE_PATH}/favicon-32.png` });
+    } catch {
+      setNotice("Push-Benachrichtigungen konnten nicht eingerichtet werden");
     }
   }
 

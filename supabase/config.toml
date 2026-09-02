@@ -1,0 +1,3 @@
+[functions.wirzeit-push]
+verify_jwt = false
+
