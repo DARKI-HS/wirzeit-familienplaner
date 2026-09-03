@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { addDays, format, isSameDay, startOfWeek } from "date-fns";
 import { de } from "date-fns/locale";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Bell, CalendarDays, Check, ChevronLeft, ChevronRight, Cloud, CloudOff, LogOut, MessageCircle, Plus, Send, Sparkles, Trash2, Users } from "lucide-react";
+import { Bell, CalendarDays, Check, ChevronLeft, ChevronRight, Cloud, CloudOff, KeyRound, LogOut, MessageCircle, Plus, Send, Sparkles, Trash2, Users } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +90,9 @@ export function Familienplaner() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [chatText, setChatText] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
   const [notice, setNotice] = useState("WirZeit ist bereit");
   const flushing = useRef(false);
 
@@ -414,6 +417,47 @@ export function Familienplaner() {
     setNotice("Chat wurde vollständig gelöscht");
   }
 
+  async function resetFamilyPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile || !supabase || profile.role !== "adult") return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const profileId = String(data.get("profileId") ?? "");
+    const password = String(data.get("password") ?? "");
+    const confirmation = String(data.get("confirmation") ?? "");
+    const target = profiles.find(member => member.id === profileId);
+    setPasswordError("");
+    if (!target) { setPasswordError("Bitte ein Familienmitglied auswählen."); return; }
+    if (password.length < 10) { setPasswordError("Das neue Passwort muss mindestens 10 Zeichen haben."); return; }
+    if (password !== confirmation) { setPasswordError("Die beiden Passwörter stimmen nicht überein."); return; }
+    if (!navigator.onLine) { setPasswordError("Zum Ändern eines Passworts wird eine Internetverbindung benötigt."); return; }
+
+    setPasswordBusy(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error("Die Anmeldung ist abgelaufen. Bitte neu anmelden.");
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/family-admin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action: "reset_password", profileId, password }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Das Passwort konnte nicht geändert werden.");
+      form.reset();
+      setAdminOpen(false);
+      setNotice(`Passwort für ${target.display_name} wurde geändert`);
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "Das Passwort konnte nicht geändert werden.");
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
   async function requestNotifications() {
     if (!supabase || !profile) return;
     if (!("Notification" in window)) { setNotice("Dieser Browser unterstützt keine Benachrichtigungen"); return; }
@@ -432,7 +476,7 @@ export function Familienplaner() {
 
   if (!profile) return <main className="login-shell"><section className="login-card" aria-labelledby="login-title"><div className="brand-mark"><Sparkles size={23}/><span>WirZeit</span></div><Badge variant="secondary">Privater Familienbereich</Badge><h1 id="login-title">Schön, dass du da bist.</h1><p className="login-copy">Termine, Absprachen und Erinnerungen an einem ruhigen Ort.</p><form onSubmit={login} className="login-form"><div><Label htmlFor="name">Dein fester Name</Label><Input id="name" name="name" autoComplete="username" placeholder="z. B. Jens" required/></div><div><Label htmlFor="password">Passwort</Label><Input id="password" name="password" type="password" autoComplete="current-password" required/></div>{loginError && <p className="form-error" role="alert">{loginError}</p>}<Button type="submit" size="lg" disabled={!supabase || loginBusy}>{loginBusy ? "Anmeldung läuft …" : "Sicher anmelden"}</Button></form><p className="privacy-note">Jedes Familienmitglied hat einen eigenen Zugang. Passwörter werden von Supabase geprüft und nicht in WirZeit gespeichert.</p></section><aside className="login-art" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="family-orb"><Users size={48}/><strong>Zusammen<br/>ist leichter.</strong></div></aside></main>;
 
-  return <main className="app-shell"><header className="topbar"><div className="top-brand"><div className="brand-mark"><Sparkles size={21}/><span>WirZeit</span></div><span className="mobile-family-name">{FAMILY_NAME}</span></div><div className="family-title"><span>{FAMILY_NAME}</span><div className="avatar-stack">{profiles.map((member, index) => <Avatar key={member.id} className={`member-avatar ${COLORS[index % COLORS.length]}`}><AvatarFallback>{initials(member.display_name)}</AvatarFallback></Avatar>)}</div></div><div className="top-actions"><button className={`sync-state ${isOnline ? "online" : "offline"}`}>{isOnline ? <Cloud size={16}/> : <CloudOff size={16}/>} {isOnline ? "Online" : "Offline"}</button><Button variant="outline" size="icon" onClick={requestNotifications} aria-label="Browser-Benachrichtigungen aktivieren"><Bell size={18}/></Button><Button variant="ghost" size="icon" onClick={logout} aria-label="Abmelden"><LogOut size={18}/></Button></div></header><div className="notice"><Check size={14}/> {notice}</div>
+  return <main className="app-shell"><header className="topbar"><div className="top-brand"><div className="brand-mark"><Sparkles size={21}/><span>WirZeit</span></div><span className="mobile-family-name">{FAMILY_NAME}</span></div><div className="family-title"><span>{FAMILY_NAME}</span><div className="avatar-stack">{profiles.map((member, index) => <Avatar key={member.id} className={`member-avatar ${COLORS[index % COLORS.length]}`}><AvatarFallback>{initials(member.display_name)}</AvatarFallback></Avatar>)}</div></div><div className="top-actions"><button className={`sync-state ${isOnline ? "online" : "offline"}`}>{isOnline ? <Cloud size={16}/> : <CloudOff size={16}/>} {isOnline ? "Online" : "Offline"}</button>{profile.role === "adult" && <Dialog open={adminOpen} onOpenChange={open => { setAdminOpen(open); setPasswordError(""); }}><DialogTrigger asChild><Button variant="outline" size="icon" aria-label="Familie verwalten"><KeyRound size={18}/></Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Familie verwalten</DialogTitle><DialogDescription>Als erwachsene Person kannst du für jedes Familienmitglied ein neues Passwort festlegen.</DialogDescription></DialogHeader><form className="event-form" onSubmit={resetFamilyPassword}><div><Label htmlFor="admin-member">Familienmitglied</Label><select id="admin-member" name="profileId" defaultValue="" required><option value="" disabled>Person auswählen</option>{profiles.map(member => <option key={member.id} value={member.id}>{member.display_name}{member.role === "adult" ? " · Erwachsen" : ""}</option>)}</select></div><div><Label htmlFor="admin-password">Neues Passwort</Label><Input id="admin-password" name="password" type="password" autoComplete="new-password" minLength={10} required/><p className="field-hint">Mindestens 10 Zeichen. Das Passwort wird nicht in WirZeit gespeichert.</p></div><div><Label htmlFor="admin-confirmation">Passwort wiederholen</Label><Input id="admin-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={10} required/></div>{passwordError && <p className="form-error" role="alert">{passwordError}</p>}<Button type="submit" disabled={passwordBusy}>{passwordBusy ? "Passwort wird geändert …" : "Passwort neu setzen"}</Button></form></DialogContent></Dialog>}<Button variant="outline" size="icon" onClick={requestNotifications} aria-label="Browser-Benachrichtigungen aktivieren"><Bell size={18}/></Button><Button variant="ghost" size="icon" onClick={logout} aria-label="Abmelden"><LogOut size={18}/></Button></div></header><div className="notice"><Check size={14}/> {notice}</div>
     <section className="workspace"><div className="calendar-panel"><div className="calendar-toolbar"><div><p className="eyebrow">Familienkalender</p><h1>{weekLabel}</h1></div><div className="toolbar-actions"><Tabs defaultValue="week"><TabsList><TabsTrigger value="week">Woche</TabsTrigger><TabsTrigger value="month">Monat</TabsTrigger></TabsList></Tabs><div className="week-nav"><Button variant="outline" size="icon" onClick={() => setWeekOffset(value => value - 1)}><ChevronLeft size={18}/></Button><Button variant="outline" onClick={() => setWeekOffset(0)}>Heute</Button><Button variant="outline" size="icon" onClick={() => setWeekOffset(value => value + 1)}><ChevronRight size={18}/></Button></div><Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogTrigger asChild><Button><Plus size={18}/> Termin</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Neuer Termin</DialogTitle><DialogDescription>Lege fest, für wen der Termin ist und wer benachrichtigt wird.</DialogDescription></DialogHeader><form className="event-form" onSubmit={addCalendarEvent}><div><Label htmlFor="event-title">Titel</Label><Input id="event-title" name="title" placeholder="Was steht an?" required/></div><div className="form-row"><div><Label htmlFor="event-date">Datum</Label><Input id="event-date" name="date" type="date" defaultValue={format(new Date(), "yyyy-MM-dd")} required/></div><div><Label htmlFor="event-time">Uhrzeit</Label><Input id="event-time" name="time" type="time" defaultValue="10:00" required/></div></div><div><Label htmlFor="event-location">Ort</Label><Input id="event-location" name="location" placeholder="Optional"/></div><div className="form-row"><div><Label htmlFor="event-member">Termin für</Label><select id="event-member" name="member" defaultValue=""><option value="">Alle</option>{profiles.map(member => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select></div><div><Label htmlFor="event-reminder">Erinnern</Label><select id="event-reminder" name="reminder" defaultValue="30"><option value="0">Zum Termin</option><option value="5">5 Minuten vorher</option><option value="15">15 Minuten vorher</option><option value="30">30 Minuten vorher</option><option value="60">1 Stunde vorher</option><option value="1440">1 Tag vorher</option></select></div></div><fieldset className="notify-fieldset"><legend>Wer soll benachrichtigt werden?</legend><p>Mindestens eine Person auswählen.</p><div className="notify-options">{profiles.map(member => <label key={member.id}><Checkbox name="notify" value={member.id} defaultChecked/><span>{member.display_name}</span></label>)}</div></fieldset><Button type="submit">Termin speichern</Button></form></DialogContent></Dialog></div></div>
       <div className="week-grid">{days.map(day => { const dayEvents = events.filter(item => isSameDay(new Date(item.startsAt), day)); const today = isSameDay(day, new Date()); return <article className={`day-column ${today ? "today" : ""}`} key={day.toISOString()}><header><span>{format(day, "EEE", { locale: de })}</span><strong>{format(day, "d")}</strong></header><div className="day-events">{dayEvents.map(item => <div className={`event-card ${item.color}`} key={item.id}><div className="event-time">{format(new Date(item.startsAt), "HH:mm")}{item.pending && <CloudOff size={12}/>}</div><strong>{item.title}</strong><span>{item.location}</span><small>{item.assigneeId ? nameById.get(item.assigneeId) : "Alle"} · 🔔 {item.notifyIds.map(id => nameById.get(id)).filter(Boolean).join(", ")}</small></div>)}{dayEvents.length === 0 && <div className="empty-slot"/>}</div></article>; })}</div><div className="legend">{profiles.map((member, index) => <span key={member.id}><i className={COLORS[index % COLORS.length]}/>{member.display_name}</span>)}<span><i className="green"/>Alle</span></div></div>
       <aside className="side-panel"><section className="upcoming-section"><div className="section-heading"><div><p className="eyebrow">Im Blick</p><h2>Als Nächstes</h2></div><CalendarDays size={22}/></div><div className="upcoming-list">{upcoming.map(item => <article key={item.id}><div className={`date-chip ${item.color}`}><strong>{format(new Date(item.startsAt), "d")}</strong><span>{format(new Date(item.startsAt), "MMM", { locale: de })}</span></div><div><strong>{item.title}</strong><span>{format(new Date(item.startsAt), "HH:mm")}{item.location ? ` · ${item.location}` : ""}</span></div></article>)}{upcoming.length === 0 && <p className="empty-copy">Noch keine kommenden Termine.</p>}</div></section><section className="chat-section"><div className="section-heading"><div><p className="eyebrow">Familienchat</p><h2>Absprachen</h2></div><div className="chat-heading-actions">{profile.role === "adult" && <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="sm" disabled={!isOnline || messages.length === 0}><Trash2 size={15}/> Leeren</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Familienchat vollständig löschen?</AlertDialogTitle><AlertDialogDescription>Alle derzeit gespeicherten Chatnachrichten werden für die ganze Familie dauerhaft gelöscht. Dies kann nicht rückgängig gemacht werden.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Abbrechen</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={clearChat}>Chat löschen</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}<MessageCircle size={22}/></div></div><div className="messages">{messages.map(message => <div key={message.id} className={`message ${message.own ? "own" : ""}`}><span className="message-author">{message.author}</span><p>{message.text}</p><small>{format(new Date(message.createdAt), "HH:mm")}{message.pending ? " · wartet" : ""}</small></div>)}{messages.length === 0 && <p className="empty-copy">Noch keine Nachrichten.</p>}</div><form className="chat-input" onSubmit={sendMessage}><Input value={chatText} onChange={event => setChatText(event.target.value)} placeholder="Nachricht schreiben …" aria-label="Nachricht"/><Button size="icon" type="submit" aria-label="Nachricht senden"><Send size={17}/></Button></form></section></aside></section>
