@@ -47,12 +47,17 @@ Deno.serve(async request => {
 
     const [{ data: caller }, { data: target }] = await Promise.all([
       admin.from("profiles").select("id,family_id,role").eq("id", callerId).single(),
-      admin.from("profiles").select("id,family_id,display_name").eq("id", body.profileId).single(),
+      admin.from("profiles").select("id,family_id,display_name,login_name").eq("id", body.profileId).single(),
     ]);
     if (!caller || caller.role !== "adult") return json({ error: "Nur Erwachsene dürfen Passwörter ändern." }, 403);
     if (!target || target.family_id !== caller.family_id) return json({ error: "Dieses Familienmitglied wurde nicht gefunden." }, 403);
 
-    const { error: updateError } = await admin.auth.admin.updateUserById(target.id, { password: body.password });
+    const loginEmail = `${target.login_name}@familienplaner.schuhmacher-jens.chatgpt.site`;
+    const { error: updateError } = await admin.auth.admin.updateUserById(target.id, {
+      password: body.password,
+      email: loginEmail,
+      email_confirm: true,
+    });
     if (updateError) throw updateError;
     return json({ ok: true, profileId: target.id, displayName: target.display_name });
   } catch (error) {

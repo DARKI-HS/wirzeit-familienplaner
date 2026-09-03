@@ -1,28 +1,118 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addDays, format, isSameDay, startOfWeek } from "date-fns";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  addDays,
+  addMonths,
+  differenceInCalendarWeeks,
+  format,
+  isSameDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 import { de } from "date-fns/locale";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Bell, CalendarDays, Check, ChevronLeft, ChevronRight, Cloud, CloudOff, KeyRound, LogOut, MessageCircle, Plus, Send, Sparkles, Trash2, Users } from "lucide-react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import {
+  Bell,
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Cloud,
+  CloudOff,
+  KeyRound,
+  LogOut,
+  MessageCircle,
+  Plus,
+  Send,
+  Sparkles,
+  Trash2,
+  Users,
+} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-type Profile = { id: string; family_id: string; login_name: string; display_name: string; role: "adult" | "child" };
+type Profile = {
+  id: string;
+  family_id: string;
+  login_name: string;
+  display_name: string;
+  role: "adult" | "child";
+};
 type MemberColor = "blue" | "coral" | "gold" | "purple" | "green";
-type FamilyEvent = { id: string; title: string; startsAt: string; assigneeId: string | null; color: MemberColor; location?: string; reminderMinutes: number; notifyIds: string[]; pending?: boolean };
-type ChatMessage = { id: string; authorId: string; author: string; text: string; createdAt: string; own?: boolean; pending?: boolean };
-type EventDraft = { title: string; startsAt: string; assigneeId: string | null; location: string; reminderMinutes: number; notifyIds: string[] };
+type FamilyEvent = {
+  id: string;
+  title: string;
+  startsAt: string;
+  assigneeId: string | null;
+  color: MemberColor;
+  location?: string;
+  reminderMinutes: number;
+  notifyIds: string[];
+  pending?: boolean;
+};
+type ChatMessage = {
+  id: string;
+  authorId: string;
+  author: string;
+  text: string;
+  createdAt: string;
+  own?: boolean;
+  pending?: boolean;
+};
+type EventDraft = {
+  title: string;
+  startsAt: string;
+  assigneeId: string | null;
+  location: string;
+  reminderMinutes: number;
+  notifyIds: string[];
+};
 type MessageDraft = { text: string };
-type OfflineItem = { id: string; ownerId: string; kind: "event" | "message"; payload: EventDraft | MessageDraft; createdAt: string };
-type Snapshot = { profiles: Profile[]; events: FamilyEvent[]; messages: ChatMessage[]; savedAt: string };
+type OfflineItem = {
+  id: string;
+  ownerId: string;
+  kind: "event" | "message";
+  payload: EventDraft | MessageDraft;
+  createdAt: string;
+};
+type Snapshot = {
+  profiles: Profile[];
+  events: FamilyEvent[];
+  messages: ChatMessage[];
+  savedAt: string;
+};
 
 const FAMILY_NAME = "Familie Schuhmacher";
 const LOGIN_EMAILS: Record<string, string> = {
@@ -37,44 +127,81 @@ const AUTH_STORAGE_KEY = "wirzeit-auth-session-v1";
 const LEGACY_AUTH_STORAGE_KEY = "sb-nahkeogrdxdyakowqcqz-auth-token";
 const APP_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const SUPABASE_URL = "https://nahkeogrdxdyakowqcqz.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_1qEEirZJcxeEXgPSIw_6qg__y8wWgY7";
-const VAPID_PUBLIC_KEY = "BA9LArpN-5lj5vLZoSZsYs8D0ohrx3tLqwDFbG7jQpIVkDCZ5sQMbRtgBXSPMGqx3Qns4D_cnvwqRzBsfzht3pE";
+const SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_1qEEirZJcxeEXgPSIw_6qg__y8wWgY7";
+const VAPID_PUBLIC_KEY =
+  "BA9LArpN-5lj5vLZoSZsYs8D0ohrx3tLqwDFbG7jQpIVkDCZ5sQMbRtgBXSPMGqx3Qns4D_cnvwqRzBsfzht3pE";
 
 function getQueue(): OfflineItem[] {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? "[]") as OfflineItem[]; }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? "[]") as OfflineItem[];
+  } catch {
+    return [];
+  }
 }
 
-function addToQueue(ownerId: string, kind: OfflineItem["kind"], payload: OfflineItem["payload"]) {
+function addToQueue(
+  ownerId: string,
+  kind: OfflineItem["kind"],
+  payload: OfflineItem["payload"],
+) {
   const items = getQueue();
-  items.push({ id: crypto.randomUUID(), ownerId, kind, payload, createdAt: new Date().toISOString() });
+  items.push({
+    id: crypto.randomUUID(),
+    ownerId,
+    kind,
+    payload,
+    createdAt: new Date().toISOString(),
+  });
   localStorage.setItem(QUEUE_KEY, JSON.stringify(items));
 }
 
 function removeFromQueue(id: string) {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(getQueue().filter(item => item.id !== id)));
+  localStorage.setItem(
+    QUEUE_KEY,
+    JSON.stringify(getQueue().filter((item) => item.id !== id)),
+  );
 }
 
 function removeQueuedMessages(ownerId: string) {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(getQueue().filter(item => item.ownerId !== ownerId || item.kind !== "message")));
+  localStorage.setItem(
+    QUEUE_KEY,
+    JSON.stringify(
+      getQueue().filter(
+        (item) => item.ownerId !== ownerId || item.kind !== "message",
+      ),
+    ),
+  );
 }
 
 function initials(name: string) {
-  return name.split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase();
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
-function snapshotKey(profileId: string) { return `wirzeit-snapshot-${profileId}`; }
+function snapshotKey(profileId: string) {
+  return `wirzeit-snapshot-${profileId}`;
+}
 
 function base64UrlToUint8Array(value: string) {
-  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
   const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
   const bytes = atob(base64);
-  return Uint8Array.from(bytes, character => character.charCodeAt(0));
+  return Uint8Array.from(bytes, (character) => character.charCodeAt(0));
 }
 
 function restoreSnapshot(profileId: string): Snapshot | null {
-  try { return JSON.parse(localStorage.getItem(snapshotKey(profileId)) ?? "null") as Snapshot | null; }
-  catch { return null; }
+  try {
+    return JSON.parse(
+      localStorage.getItem(snapshotKey(profileId)) ?? "null",
+    ) as Snapshot | null;
+  } catch {
+    return null;
+  }
 }
 
 export function Familienplaner() {
@@ -88,137 +215,269 @@ export function Familienplaner() {
   const [loginError, setLoginError] = useState("");
   const [isOnline, setIsOnline] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [calendarView, setCalendarView] = useState<"week" | "month">("week");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [chatText, setChatText] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [familyOpen, setFamilyOpen] = useState(false);
+  const [mobileSection, setMobileSection] = useState<
+    "planner" | "chat" | "family"
+  >("planner");
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const [notice, setNotice] = useState("WirZeit ist bereit");
   const flushing = useRef(false);
+  const swipeStartX = useRef<number | null>(null);
+  const calendarSectionRef = useRef<HTMLDivElement | null>(null);
+  const chatSectionRef = useRef<HTMLElement | null>(null);
 
-  const memberColor = useCallback((id: string | null): MemberColor => {
-    if (!id) return "green";
-    const index = profiles.findIndex(member => member.id === id);
-    return COLORS[index >= 0 ? index % COLORS.length : 0];
-  }, [profiles]);
+  function showMobileSection(section: "planner" | "chat" | "family") {
+    setMobileSection(section);
+    if (section === "planner")
+      calendarSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    if (section === "chat")
+      chatSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    if (section === "family") setFamilyOpen(true);
+  }
 
-  const savePushSubscription = useCallback(async (client: SupabaseClient, current: Profile) => {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("Push wird nicht unterstützt");
-    const registration = await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
-    const subscription = existing ?? await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: base64UrlToUint8Array(VAPID_PUBLIC_KEY),
-    });
-    const json = subscription.toJSON();
-    if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("Push-Abonnement ist unvollständig");
-    const { error } = await client.from("push_subscriptions").upsert({
-      profile_id: current.id,
-      endpoint: json.endpoint,
-      p256dh: json.keys.p256dh,
-      auth: json.keys.auth,
-      user_agent: navigator.userAgent,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "endpoint" });
-    if (error) throw error;
-    return registration;
-  }, []);
+  const memberColor = useCallback(
+    (id: string | null): MemberColor => {
+      if (!id) return "green";
+      const index = profiles.findIndex((member) => member.id === id);
+      return COLORS[index >= 0 ? index % COLORS.length : 0];
+    },
+    [profiles],
+  );
 
-  const loadFamilyData = useCallback(async (client: SupabaseClient, current: Profile) => {
-    const [profileResult, eventResult, recipientResult, messageResult] = await Promise.all([
-      client.from("profiles").select("id,family_id,login_name,display_name,role").eq("family_id", current.family_id).order("display_name"),
-      client.from("events").select("id,title,starts_at,location,assignee_id,reminder_minutes").eq("family_id", current.family_id).order("starts_at"),
-      client.from("event_recipients").select("event_id,profile_id"),
-      client.from("messages").select("id,author_id,body,created_at").eq("family_id", current.family_id).order("created_at"),
-    ]);
-    const firstError = profileResult.error ?? eventResult.error ?? recipientResult.error ?? messageResult.error;
-    if (firstError) throw firstError;
-    const familyProfiles = (profileResult.data ?? []) as Profile[];
-    setProfiles(familyProfiles);
-    const names = new Map(familyProfiles.map(member => [member.id, member.display_name]));
-    const recipientMap = new Map<string, string[]>();
-    for (const row of recipientResult.data ?? []) {
-      const list = recipientMap.get(row.event_id) ?? [];
-      list.push(row.profile_id);
-      recipientMap.set(row.event_id, list);
-    }
-    const mappedEvents: FamilyEvent[] = (eventResult.data ?? []).map(row => ({
-      id: row.id,
-      title: row.title,
-      startsAt: row.starts_at,
-      assigneeId: row.assignee_id,
-      color: row.assignee_id ? COLORS[Math.max(0, familyProfiles.findIndex(member => member.id === row.assignee_id)) % COLORS.length] : "green",
-      location: row.location ?? "",
-      reminderMinutes: row.reminder_minutes,
-      notifyIds: recipientMap.get(row.id) ?? [],
-    }));
-    const mappedMessages: ChatMessage[] = (messageResult.data ?? []).map(row => ({
-      id: row.id,
-      authorId: row.author_id,
-      author: names.get(row.author_id) ?? "Familie",
-      text: row.body,
-      createdAt: row.created_at,
-      own: row.author_id === current.id,
-    }));
-    setEvents(mappedEvents);
-    setMessages(mappedMessages);
-    localStorage.setItem(snapshotKey(current.id), JSON.stringify({ profiles: familyProfiles, events: mappedEvents, messages: mappedMessages, savedAt: new Date().toISOString() } satisfies Snapshot));
-  }, []);
+  const savePushSubscription = useCallback(
+    async (client: SupabaseClient, current: Profile) => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window))
+        throw new Error("Push wird nicht unterstützt");
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription =
+        existing ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: base64UrlToUint8Array(VAPID_PUBLIC_KEY),
+        }));
+      const json = subscription.toJSON();
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth)
+        throw new Error("Push-Abonnement ist unvollständig");
+      const { error } = await client.from("push_subscriptions").upsert(
+        {
+          profile_id: current.id,
+          endpoint: json.endpoint,
+          p256dh: json.keys.p256dh,
+          auth: json.keys.auth,
+          user_agent: navigator.userAgent,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "endpoint" },
+      );
+      if (error) throw error;
+      return registration;
+    },
+    [],
+  );
 
-  const createRemoteEvent = useCallback(async (client: SupabaseClient, current: Profile, draft: EventDraft) => {
-    const { data, error } = await client.from("events").insert({
-      family_id: current.family_id,
-      created_by: current.id,
-      title: draft.title,
-      starts_at: draft.startsAt,
-      location: draft.location || null,
-      assignee_id: draft.assigneeId,
-      reminder_minutes: draft.reminderMinutes,
-    }).select("id").single();
-    if (error) throw error;
-    const { error: recipientError } = await client.from("event_recipients").insert(draft.notifyIds.map(profileId => ({ event_id: data.id, profile_id: profileId })));
-    if (recipientError) throw recipientError;
-  }, []);
-
-  const createRemoteMessage = useCallback(async (client: SupabaseClient, current: Profile, draft: MessageDraft) => {
-    const { error } = await client.from("messages").insert({ family_id: current.family_id, author_id: current.id, body: draft.text });
-    if (error) throw error;
-  }, []);
-
-  const flushQueue = useCallback(async (client: SupabaseClient, current: Profile) => {
-    if (flushing.current || !navigator.onLine) return;
-    flushing.current = true;
-    try {
-      const pending = getQueue().filter(item => item.ownerId === current.id);
-      for (const item of pending) {
-        if (item.kind === "event") await createRemoteEvent(client, current, item.payload as EventDraft);
-        else await createRemoteMessage(client, current, item.payload as MessageDraft);
-        removeFromQueue(item.id);
+  const loadFamilyData = useCallback(
+    async (client: SupabaseClient, current: Profile) => {
+      const [profileResult, eventResult, recipientResult, messageResult] =
+        await Promise.all([
+          client
+            .from("profiles")
+            .select("id,family_id,login_name,display_name,role")
+            .eq("family_id", current.family_id)
+            .order("display_name"),
+          client
+            .from("events")
+            .select("id,title,starts_at,location,assignee_id,reminder_minutes")
+            .eq("family_id", current.family_id)
+            .order("starts_at"),
+          client.from("event_recipients").select("event_id,profile_id"),
+          client
+            .from("messages")
+            .select("id,author_id,body,created_at")
+            .eq("family_id", current.family_id)
+            .order("created_at"),
+        ]);
+      const firstError =
+        profileResult.error ??
+        eventResult.error ??
+        recipientResult.error ??
+        messageResult.error;
+      if (firstError) throw firstError;
+      const familyProfiles = (profileResult.data ?? []) as Profile[];
+      setProfiles(familyProfiles);
+      const names = new Map(
+        familyProfiles.map((member) => [member.id, member.display_name]),
+      );
+      const recipientMap = new Map<string, string[]>();
+      for (const row of recipientResult.data ?? []) {
+        const list = recipientMap.get(row.event_id) ?? [];
+        list.push(row.profile_id);
+        recipientMap.set(row.event_id, list);
       }
-      await loadFamilyData(client, current);
-      if (pending.length) setNotice("Offline-Änderungen wurden synchronisiert");
-    } catch {
-      setNotice("Synchronisierung wartet auf eine stabile Verbindung");
-    } finally {
-      flushing.current = false;
-    }
-  }, [createRemoteEvent, createRemoteMessage, loadFamilyData]);
+      const mappedEvents: FamilyEvent[] = (eventResult.data ?? []).map(
+        (row) => ({
+          id: row.id,
+          title: row.title,
+          startsAt: row.starts_at,
+          assigneeId: row.assignee_id,
+          color: row.assignee_id
+            ? COLORS[
+                Math.max(
+                  0,
+                  familyProfiles.findIndex(
+                    (member) => member.id === row.assignee_id,
+                  ),
+                ) % COLORS.length
+              ]
+            : "green",
+          location: row.location ?? "",
+          reminderMinutes: row.reminder_minutes,
+          notifyIds: recipientMap.get(row.id) ?? [],
+        }),
+      );
+      const mappedMessages: ChatMessage[] = (messageResult.data ?? []).map(
+        (row) => ({
+          id: row.id,
+          authorId: row.author_id,
+          author: names.get(row.author_id) ?? "Familie",
+          text: row.body,
+          createdAt: row.created_at,
+          own: row.author_id === current.id,
+        }),
+      );
+      setEvents(mappedEvents);
+      setMessages(mappedMessages);
+      localStorage.setItem(
+        snapshotKey(current.id),
+        JSON.stringify({
+          profiles: familyProfiles,
+          events: mappedEvents,
+          messages: mappedMessages,
+          savedAt: new Date().toISOString(),
+        } satisfies Snapshot),
+      );
+    },
+    [],
+  );
 
-  const restoreAuthenticatedProfile = useCallback(async (client: SupabaseClient, userId: string) => {
-    const { data: current, error } = await client.from("profiles").select("id,family_id,login_name,display_name,role").eq("id", userId).single();
-    if (error || !current) throw error ?? new Error("Familienprofil fehlt");
-    setProfile(current as Profile);
-    try {
-      await loadFamilyData(client, current as Profile);
-    } catch {
-      const snapshot = restoreSnapshot(current.id);
-      if (!snapshot) throw new Error("Keine Offline-Daten verfügbar");
-      setProfiles(snapshot.profiles);
-      setEvents(snapshot.events);
-      setMessages(snapshot.messages.map(message => ({ ...message, own: message.authorId === current.id })));
-      setNotice("Offline-Stand wird angezeigt");
-    }
-  }, [loadFamilyData]);
+  const createRemoteEvent = useCallback(
+    async (client: SupabaseClient, current: Profile, draft: EventDraft) => {
+      const { data, error } = await client
+        .from("events")
+        .insert({
+          family_id: current.family_id,
+          created_by: current.id,
+          title: draft.title,
+          starts_at: draft.startsAt,
+          location: draft.location || null,
+          assignee_id: draft.assigneeId,
+          reminder_minutes: draft.reminderMinutes,
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      const { error: recipientError } = await client
+        .from("event_recipients")
+        .insert(
+          draft.notifyIds.map((profileId) => ({
+            event_id: data.id,
+            profile_id: profileId,
+          })),
+        );
+      if (recipientError) throw recipientError;
+    },
+    [],
+  );
+
+  const createRemoteMessage = useCallback(
+    async (client: SupabaseClient, current: Profile, draft: MessageDraft) => {
+      const { error } = await client
+        .from("messages")
+        .insert({
+          family_id: current.family_id,
+          author_id: current.id,
+          body: draft.text,
+        });
+      if (error) throw error;
+    },
+    [],
+  );
+
+  const flushQueue = useCallback(
+    async (client: SupabaseClient, current: Profile) => {
+      if (flushing.current || !navigator.onLine) return;
+      flushing.current = true;
+      try {
+        const pending = getQueue().filter(
+          (item) => item.ownerId === current.id,
+        );
+        for (const item of pending) {
+          if (item.kind === "event")
+            await createRemoteEvent(
+              client,
+              current,
+              item.payload as EventDraft,
+            );
+          else
+            await createRemoteMessage(
+              client,
+              current,
+              item.payload as MessageDraft,
+            );
+          removeFromQueue(item.id);
+        }
+        await loadFamilyData(client, current);
+        if (pending.length)
+          setNotice("Offline-Änderungen wurden synchronisiert");
+      } catch {
+        setNotice("Synchronisierung wartet auf eine stabile Verbindung");
+      } finally {
+        flushing.current = false;
+      }
+    },
+    [createRemoteEvent, createRemoteMessage, loadFamilyData],
+  );
+
+  const restoreAuthenticatedProfile = useCallback(
+    async (client: SupabaseClient, userId: string) => {
+      const { data: current, error } = await client
+        .from("profiles")
+        .select("id,family_id,login_name,display_name,role")
+        .eq("id", userId)
+        .single();
+      if (error || !current) throw error ?? new Error("Familienprofil fehlt");
+      setProfile(current as Profile);
+      try {
+        await loadFamilyData(client, current as Profile);
+      } catch {
+        const snapshot = restoreSnapshot(current.id);
+        if (!snapshot) throw new Error("Keine Offline-Daten verfügbar");
+        setProfiles(snapshot.profiles);
+        setEvents(snapshot.events);
+        setMessages(
+          snapshot.messages.map((message) => ({
+            ...message,
+            own: message.authorId === current.id,
+          })),
+        );
+        setNotice("Offline-Stand wird angezeigt");
+      }
+    },
+    [loadFamilyData],
+  );
 
   useEffect(() => {
     let active = true;
@@ -244,26 +503,43 @@ export function Familienplaner() {
         setSupabase(client);
         const restoreSession = async () => {
           const { data } = await client.auth.getSession();
-          if (data.session && active) await restoreAuthenticatedProfile(client, data.session.user.id);
+          if (data.session && active)
+            await restoreAuthenticatedProfile(client, data.session.user.id);
         };
-        const { data: authListener } = client.auth.onAuthStateChange((event, session) => {
-          if (!active) return;
-          if (event === "SIGNED_OUT") {
-            setProfile(null);
-            return;
-          }
-          if (session && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
-            window.setTimeout(() => void restoreAuthenticatedProfile(client, session.user.id).catch(() => undefined), 0);
-          }
-        });
+        const { data: authListener } = client.auth.onAuthStateChange(
+          (event, session) => {
+            if (!active) return;
+            if (event === "SIGNED_OUT") {
+              setProfile(null);
+              return;
+            }
+            if (
+              session &&
+              (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")
+            ) {
+              window.setTimeout(
+                () =>
+                  void restoreAuthenticatedProfile(
+                    client,
+                    session.user.id,
+                  ).catch(() => undefined),
+                0,
+              );
+            }
+          },
+        );
         unsubscribeAuth = () => authListener.subscription.unsubscribe();
         resumeSession = () => {
-          if (document.visibilityState === "visible") void restoreSession().catch(() => undefined);
+          if (document.visibilityState === "visible")
+            void restoreSession().catch(() => undefined);
         };
         document.addEventListener("visibilitychange", resumeSession);
         await restoreSession();
       } catch {
-        if (active) setLoginError("Die Cloud-Verbindung konnte nicht geladen werden. Bitte später erneut versuchen.");
+        if (active)
+          setLoginError(
+            "Die Cloud-Verbindung konnte nicht geladen werden. Bitte später erneut versuchen.",
+          );
       } finally {
         if (active) setBooting(false);
       }
@@ -272,7 +548,8 @@ export function Familienplaner() {
     return () => {
       active = false;
       unsubscribeAuth?.();
-      if (resumeSession) document.removeEventListener("visibilitychange", resumeSession);
+      if (resumeSession)
+        document.removeEventListener("visibilitychange", resumeSession);
     };
   }, [restoreAuthenticatedProfile]);
 
@@ -285,53 +562,181 @@ export function Familienplaner() {
     update();
     addEventListener("online", update);
     addEventListener("offline", update);
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${APP_BASE_PATH}/sw.js`, { scope: `${APP_BASE_PATH}/` });
-    return () => { removeEventListener("online", update); removeEventListener("offline", update); };
+    if ("serviceWorker" in navigator)
+      void navigator.serviceWorker.register(`${APP_BASE_PATH}/sw.js`, {
+        scope: `${APP_BASE_PATH}/`,
+      });
+    return () => {
+      removeEventListener("online", update);
+      removeEventListener("offline", update);
+    };
   }, [flushQueue, profile, supabase]);
 
   useEffect(() => {
-    if (!supabase || !profile || !("Notification" in window) || Notification.permission !== "granted") return;
-    void savePushSubscription(supabase, profile).catch(() => setNotice("Push-Verbindung konnte nicht erneuert werden"));
+    if (
+      !supabase ||
+      !profile ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    )
+      return;
+    void savePushSubscription(supabase, profile).catch(() =>
+      setNotice("Push-Verbindung konnte nicht erneuert werden"),
+    );
   }, [profile, savePushSubscription, supabase]);
 
   useEffect(() => {
     if (!supabase || !profile) return;
-    const refresh = () => void loadFamilyData(supabase, profile).catch(() => undefined);
-    const channel = supabase.channel(`family-${profile.family_id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `family_id=eq.${profile.family_id}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `family_id=eq.${profile.family_id}` }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "event_recipients" }, refresh)
+    const refresh = () =>
+      void loadFamilyData(supabase, profile).catch(() => undefined);
+    const channel = supabase
+      .channel(`family-${profile.family_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "events",
+          filter: `family_id=eq.${profile.family_id}`,
+        },
+        refresh,
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `family_id=eq.${profile.family_id}`,
+        },
+        refresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "event_recipients" },
+        refresh,
+      )
       .subscribe();
     const timer = window.setInterval(refresh, 20000);
-    const flushTimer = window.setTimeout(() => void flushQueue(supabase, profile), 0);
-    return () => { window.clearInterval(timer); window.clearTimeout(flushTimer); void supabase.removeChannel(channel); };
+    const flushTimer = window.setTimeout(
+      () => void flushQueue(supabase, profile),
+      0,
+    );
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(flushTimer);
+      void supabase.removeChannel(channel);
+    };
   }, [flushQueue, loadFamilyData, profile, supabase]);
 
-  const weekStart = useMemo(() => addDays(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset * 7), [weekOffset]);
+  const weekStart = useMemo(
+    () => addDays(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset * 7),
+    [weekOffset],
+  );
   const weekEnd = addDays(weekStart, 6);
-  const weekLabel = weekStart.getMonth() === weekEnd.getMonth()
-    ? format(weekStart, "MMMM yyyy", { locale: de })
-    : `${format(weekStart, "d. MMM", { locale: de })} – ${format(weekEnd, "d. MMM yyyy", { locale: de })}`;
-  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-  const upcoming = [...events].filter(item => new Date(item.startsAt) >= new Date()).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 4);
-  const nameById = useMemo(() => new Map(profiles.map(member => [member.id, member.display_name])), [profiles]);
+  const weekLabel =
+    weekStart.getMonth() === weekEnd.getMonth()
+      ? format(weekStart, "MMMM yyyy", { locale: de })
+      : `${format(weekStart, "d. MMM", { locale: de })} – ${format(weekEnd, "d. MMM yyyy", { locale: de })}`;
+  const days = Array.from({ length: 7 }, (_, index) =>
+    addDays(weekStart, index),
+  );
+  const monthStart = addMonths(startOfMonth(new Date()), monthOffset);
+  const monthGridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+  const monthDays = Array.from({ length: 42 }, (_, index) =>
+    addDays(monthGridStart, index),
+  );
+  const calendarLabel =
+    calendarView === "week"
+      ? weekLabel
+      : format(monthStart, "MMMM yyyy", { locale: de });
+  const pickerYears = Array.from(
+    { length: 9 },
+    (_, index) => new Date().getFullYear() - 3 + index,
+  );
+  const upcoming = [...events]
+    .filter((item) => new Date(item.startsAt) >= new Date())
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+    .slice(0, 4);
+  const nameById = useMemo(
+    () => new Map(profiles.map((member) => [member.id, member.display_name])),
+    [profiles],
+  );
+
+  function moveCalendar(direction: -1 | 1) {
+    if (calendarView === "week") setWeekOffset((value) => value + direction);
+    else setMonthOffset((value) => value + direction);
+  }
+
+  function showToday() {
+    setWeekOffset(0);
+    setMonthOffset(0);
+  }
+
+  function openDay(day: Date) {
+    const currentWeek = startOfWeek(new Date(), { weekStartsOn: 1 });
+    setWeekOffset(
+      differenceInCalendarWeeks(
+        startOfWeek(day, { weekStartsOn: 1 }),
+        currentWeek,
+        { weekStartsOn: 1 },
+      ),
+    );
+    setCalendarView("week");
+  }
+
+  function chooseMonth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const year = Number(data.get("year"));
+    const month = Number(data.get("month"));
+    const selected = new Date(year, month, 1);
+    const current = startOfMonth(new Date());
+    setMonthOffset(
+      (selected.getFullYear() - current.getFullYear()) * 12 +
+        selected.getMonth() -
+        current.getMonth(),
+    );
+    setCalendarView("month");
+    setDatePickerOpen(false);
+  }
+
+  function finishSwipe(clientX: number) {
+    if (swipeStartX.current === null) return;
+    const distance = clientX - swipeStartX.current;
+    swipeStartX.current = null;
+    if (Math.abs(distance) < 55) return;
+    moveCalendar(distance < 0 ? 1 : -1);
+  }
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
     const data = new FormData(event.currentTarget);
-    const loginName = String(data.get("name") ?? "").trim().toLowerCase();
+    const loginName = String(data.get("name") ?? "")
+      .trim()
+      .toLowerCase();
     const email = LOGIN_EMAILS[loginName];
-    if (!email) { setLoginError("Dieser Name gehört nicht zu Familie Schuhmacher."); return; }
+    if (!email) {
+      setLoginError("Dieser Name gehört nicht zu Familie Schuhmacher.");
+      return;
+    }
     setLoginBusy(true);
     setLoginError("");
-    const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password: String(data.get("password") ?? "") });
+    const { data: authData, error } = await supabase.auth.signInWithPassword({
+      email,
+      password: String(data.get("password") ?? ""),
+    });
     if (error || !authData.user) {
       setLoginError("Name oder Passwort ist nicht richtig.");
       setLoginBusy(false);
       return;
     }
-    const { data: current, error: profileError } = await supabase.from("profiles").select("id,family_id,login_name,display_name,role").eq("id", authData.user.id).single();
+    const { data: current, error: profileError } = await supabase
+      .from("profiles")
+      .select("id,family_id,login_name,display_name,role")
+      .eq("id", authData.user.id)
+      .single();
     if (profileError || !current) {
       await supabase.auth.signOut();
       setLoginError("Das Familienprofil konnte nicht geladen werden.");
@@ -356,10 +761,15 @@ export function Familienplaner() {
     if (!profile || !supabase) return;
     const data = new FormData(event.currentTarget);
     const notifyIds = data.getAll("notify").map(String);
-    if (!notifyIds.length) { setNotice("Bitte mindestens eine Person für die Erinnerung wählen"); return; }
+    if (!notifyIds.length) {
+      setNotice("Bitte mindestens eine Person für die Erinnerung wählen");
+      return;
+    }
     const draft: EventDraft = {
       title: String(data.get("title")),
-      startsAt: new Date(`${data.get("date")}T${data.get("time")}:00`).toISOString(),
+      startsAt: new Date(
+        `${data.get("date")}T${data.get("time")}:00`,
+      ).toISOString(),
       assigneeId: String(data.get("member")) || null,
       location: String(data.get("location") ?? ""),
       reminderMinutes: Number(data.get("reminder")),
@@ -368,7 +778,15 @@ export function Familienplaner() {
     setDialogOpen(false);
     if (!navigator.onLine) {
       addToQueue(profile.id, "event", draft);
-      setEvents(items => [...items, { id: crypto.randomUUID(), ...draft, color: memberColor(draft.assigneeId), pending: true }]);
+      setEvents((items) => [
+        ...items,
+        {
+          id: crypto.randomUUID(),
+          ...draft,
+          color: memberColor(draft.assigneeId),
+          pending: true,
+        },
+      ]);
       setNotice("Termin offline gespeichert");
       return;
     }
@@ -378,7 +796,15 @@ export function Familienplaner() {
       setNotice("Termin wurde gespeichert");
     } catch {
       addToQueue(profile.id, "event", draft);
-      setEvents(items => [...items, { id: crypto.randomUUID(), ...draft, color: memberColor(draft.assigneeId), pending: true }]);
+      setEvents((items) => [
+        ...items,
+        {
+          id: crypto.randomUUID(),
+          ...draft,
+          color: memberColor(draft.assigneeId),
+          pending: true,
+        },
+      ]);
       setNotice("Termin wartet auf Synchronisierung");
     }
   }
@@ -390,7 +816,18 @@ export function Familienplaner() {
     setChatText("");
     if (!navigator.onLine) {
       addToQueue(profile.id, "message", draft);
-      setMessages(items => [...items, { id: crypto.randomUUID(), authorId: profile.id, author: profile.display_name, text: draft.text, createdAt: new Date().toISOString(), own: true, pending: true }]);
+      setMessages((items) => [
+        ...items,
+        {
+          id: crypto.randomUUID(),
+          authorId: profile.id,
+          author: profile.display_name,
+          text: draft.text,
+          createdAt: new Date().toISOString(),
+          own: true,
+          pending: true,
+        },
+      ]);
       setNotice("Nachricht offline gespeichert");
       return;
     }
@@ -399,14 +836,28 @@ export function Familienplaner() {
       await loadFamilyData(supabase, profile);
     } catch {
       addToQueue(profile.id, "message", draft);
-      setMessages(items => [...items, { id: crypto.randomUUID(), authorId: profile.id, author: profile.display_name, text: draft.text, createdAt: new Date().toISOString(), own: true, pending: true }]);
+      setMessages((items) => [
+        ...items,
+        {
+          id: crypto.randomUUID(),
+          authorId: profile.id,
+          author: profile.display_name,
+          text: draft.text,
+          createdAt: new Date().toISOString(),
+          own: true,
+          pending: true,
+        },
+      ]);
       setNotice("Nachricht wartet auf Synchronisierung");
     }
   }
 
   async function clearChat() {
     if (!profile || !supabase || profile.role !== "adult") return;
-    const { error } = await supabase.from("messages").delete().eq("family_id", profile.family_id);
+    const { error } = await supabase
+      .from("messages")
+      .delete()
+      .eq("family_id", profile.family_id);
     if (error) {
       setNotice("Chat konnte nicht gelöscht werden");
       return;
@@ -425,34 +876,65 @@ export function Familienplaner() {
     const profileId = String(data.get("profileId") ?? "");
     const password = String(data.get("password") ?? "");
     const confirmation = String(data.get("confirmation") ?? "");
-    const target = profiles.find(member => member.id === profileId);
+    const target = profiles.find((member) => member.id === profileId);
     setPasswordError("");
-    if (!target) { setPasswordError("Bitte ein Familienmitglied auswählen."); return; }
-    if (password.length < 10) { setPasswordError("Das neue Passwort muss mindestens 10 Zeichen haben."); return; }
-    if (password !== confirmation) { setPasswordError("Die beiden Passwörter stimmen nicht überein."); return; }
-    if (!navigator.onLine) { setPasswordError("Zum Ändern eines Passworts wird eine Internetverbindung benötigt."); return; }
+    if (!target) {
+      setPasswordError("Bitte ein Familienmitglied auswählen.");
+      return;
+    }
+    if (password.length < 10) {
+      setPasswordError("Das neue Passwort muss mindestens 10 Zeichen haben.");
+      return;
+    }
+    if (password !== confirmation) {
+      setPasswordError("Die beiden Passwörter stimmen nicht überein.");
+      return;
+    }
+    if (!navigator.onLine) {
+      setPasswordError(
+        "Zum Ändern eines Passworts wird eine Internetverbindung benötigt.",
+      );
+      return;
+    }
 
     setPasswordBusy(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
-      if (!accessToken) throw new Error("Die Anmeldung ist abgelaufen. Bitte neu anmelden.");
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/family-admin`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          Authorization: `Bearer ${accessToken}`,
+      if (!accessToken)
+        throw new Error("Die Anmeldung ist abgelaufen. Bitte neu anmelden.");
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/family-admin`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            action: "reset_password",
+            profileId,
+            password,
+          }),
         },
-        body: JSON.stringify({ action: "reset_password", profileId, password }),
-      });
-      const result = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Das Passwort konnte nicht geändert werden.");
+      );
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok)
+        throw new Error(
+          result.error ?? "Das Passwort konnte nicht geändert werden.",
+        );
       form.reset();
       setAdminOpen(false);
       setNotice(`Passwort für ${target.display_name} wurde geändert`);
     } catch (error) {
-      setPasswordError(error instanceof Error ? error.message : "Das Passwort konnte nicht geändert werden.");
+      setPasswordError(
+        error instanceof Error
+          ? error.message
+          : "Das Passwort konnte nicht geändert werden.",
+      );
     } finally {
       setPasswordBusy(false);
     }
@@ -460,25 +942,736 @@ export function Familienplaner() {
 
   async function requestNotifications() {
     if (!supabase || !profile) return;
-    if (!("Notification" in window)) { setNotice("Dieser Browser unterstützt keine Benachrichtigungen"); return; }
+    if (!("Notification" in window)) {
+      setNotice("Dieser Browser unterstützt keine Benachrichtigungen");
+      return;
+    }
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") { setNotice("Browser-Benachrichtigungen nicht erlaubt"); return; }
+    if (permission !== "granted") {
+      setNotice("Browser-Benachrichtigungen nicht erlaubt");
+      return;
+    }
     try {
       const registration = await savePushSubscription(supabase, profile);
       setNotice("Push-Benachrichtigungen aktiviert");
-      await registration.showNotification("WirZeit", { body: "Push-Benachrichtigungen sind auf diesem Gerät aktiviert.", icon: `${APP_BASE_PATH}/icon-192.png`, badge: `${APP_BASE_PATH}/favicon-32.png` });
+      await registration.showNotification("WirZeit", {
+        body: "Push-Benachrichtigungen sind auf diesem Gerät aktiviert.",
+        icon: `${APP_BASE_PATH}/icon-192.png`,
+        badge: `${APP_BASE_PATH}/favicon-32.png`,
+      });
     } catch {
       setNotice("Push-Benachrichtigungen konnten nicht eingerichtet werden");
     }
   }
 
-  if (booting) return <main className="login-shell"><section className="login-card"><div className="brand-mark"><Sparkles size={23}/><span>WirZeit</span></div><p className="login-copy">Familienplaner wird geladen …</p></section><aside className="login-art" aria-hidden="true"><div className="family-orb"><Users size={48}/><strong>Zusammen<br/>ist leichter.</strong></div></aside></main>;
+  if (booting)
+    return (
+      <main className="login-shell">
+        <section className="login-card">
+          <div className="brand-mark">
+            <Sparkles size={23} />
+            <span>WirZeit</span>
+          </div>
+          <p className="login-copy">Familienplaner wird geladen …</p>
+        </section>
+        <aside className="login-art" aria-hidden="true">
+          <div className="family-orb">
+            <Users size={48} />
+            <strong>
+              Zusammen
+              <br />
+              ist leichter.
+            </strong>
+          </div>
+        </aside>
+      </main>
+    );
 
-  if (!profile) return <main className="login-shell"><section className="login-card" aria-labelledby="login-title"><div className="brand-mark"><Sparkles size={23}/><span>WirZeit</span></div><Badge variant="secondary">Privater Familienbereich</Badge><h1 id="login-title">Schön, dass du da bist.</h1><p className="login-copy">Termine, Absprachen und Erinnerungen an einem ruhigen Ort.</p><form onSubmit={login} className="login-form"><div><Label htmlFor="name">Dein fester Name</Label><Input id="name" name="name" autoComplete="username" placeholder="z. B. Jens" required/></div><div><Label htmlFor="password">Passwort</Label><Input id="password" name="password" type="password" autoComplete="current-password" required/></div>{loginError && <p className="form-error" role="alert">{loginError}</p>}<Button type="submit" size="lg" disabled={!supabase || loginBusy}>{loginBusy ? "Anmeldung läuft …" : "Sicher anmelden"}</Button></form><p className="privacy-note">Jedes Familienmitglied hat einen eigenen Zugang. Passwörter werden von Supabase geprüft und nicht in WirZeit gespeichert.</p></section><aside className="login-art" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="family-orb"><Users size={48}/><strong>Zusammen<br/>ist leichter.</strong></div></aside></main>;
+  if (!profile)
+    return (
+      <main className="login-shell">
+        <section className="login-card" aria-labelledby="login-title">
+          <div className="brand-mark">
+            <Sparkles size={23} />
+            <span>WirZeit</span>
+          </div>
+          <Badge variant="secondary">Privater Familienbereich</Badge>
+          <h1 id="login-title">Schön, dass du da bist.</h1>
+          <p className="login-copy">
+            Termine, Absprachen und Erinnerungen an einem ruhigen Ort.
+          </p>
+          <form onSubmit={login} className="login-form">
+            <div>
+              <Label htmlFor="name">Dein fester Name</Label>
+              <Input
+                id="name"
+                name="name"
+                autoComplete="username"
+                placeholder="z. B. Jens"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="password">Passwort</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            {loginError && (
+              <p className="form-error" role="alert">
+                {loginError}
+              </p>
+            )}
+            <Button type="submit" size="lg" disabled={!supabase || loginBusy}>
+              {loginBusy ? "Anmeldung läuft …" : "Sicher anmelden"}
+            </Button>
+          </form>
+          <p className="privacy-note">
+            Jedes Familienmitglied hat einen eigenen Zugang. Passwörter werden
+            von Supabase geprüft und nicht in WirZeit gespeichert.
+          </p>
+        </section>
+        <aside className="login-art" aria-hidden="true">
+          <div className="orbit orbit-one" />
+          <div className="orbit orbit-two" />
+          <div className="family-orb">
+            <Users size={48} />
+            <strong>
+              Zusammen
+              <br />
+              ist leichter.
+            </strong>
+          </div>
+        </aside>
+      </main>
+    );
 
-  return <main className="app-shell"><header className="topbar"><div className="top-brand"><div className="brand-mark"><Sparkles size={21}/><span>WirZeit</span></div><span className="mobile-family-name">{FAMILY_NAME}</span></div><div className="family-title"><span>{FAMILY_NAME}</span><div className="avatar-stack">{profiles.map((member, index) => <Avatar key={member.id} className={`member-avatar ${COLORS[index % COLORS.length]}`}><AvatarFallback>{initials(member.display_name)}</AvatarFallback></Avatar>)}</div></div><div className="top-actions"><button className={`sync-state ${isOnline ? "online" : "offline"}`}>{isOnline ? <Cloud size={16}/> : <CloudOff size={16}/>} {isOnline ? "Online" : "Offline"}</button>{profile.role === "adult" && <Dialog open={adminOpen} onOpenChange={open => { setAdminOpen(open); setPasswordError(""); }}><DialogTrigger asChild><Button variant="outline" size="icon" aria-label="Familie verwalten"><KeyRound size={18}/></Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Familie verwalten</DialogTitle><DialogDescription>Als erwachsene Person kannst du für jedes Familienmitglied ein neues Passwort festlegen.</DialogDescription></DialogHeader><form className="event-form" onSubmit={resetFamilyPassword}><div><Label htmlFor="admin-member">Familienmitglied</Label><select id="admin-member" name="profileId" defaultValue="" required><option value="" disabled>Person auswählen</option>{profiles.map(member => <option key={member.id} value={member.id}>{member.display_name}{member.role === "adult" ? " · Erwachsen" : ""}</option>)}</select></div><div><Label htmlFor="admin-password">Neues Passwort</Label><Input id="admin-password" name="password" type="password" autoComplete="new-password" minLength={10} required/><p className="field-hint">Mindestens 10 Zeichen. Das Passwort wird nicht in WirZeit gespeichert.</p></div><div><Label htmlFor="admin-confirmation">Passwort wiederholen</Label><Input id="admin-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={10} required/></div>{passwordError && <p className="form-error" role="alert">{passwordError}</p>}<Button type="submit" disabled={passwordBusy}>{passwordBusy ? "Passwort wird geändert …" : "Passwort neu setzen"}</Button></form></DialogContent></Dialog>}<Button variant="outline" size="icon" onClick={requestNotifications} aria-label="Browser-Benachrichtigungen aktivieren"><Bell size={18}/></Button><Button variant="ghost" size="icon" onClick={logout} aria-label="Abmelden"><LogOut size={18}/></Button></div></header><div className="notice"><Check size={14}/> {notice}</div>
-    <section className="workspace"><div className="calendar-panel"><div className="calendar-toolbar"><div><p className="eyebrow">Familienkalender</p><h1>{weekLabel}</h1></div><div className="toolbar-actions"><Tabs defaultValue="week"><TabsList><TabsTrigger value="week">Woche</TabsTrigger><TabsTrigger value="month">Monat</TabsTrigger></TabsList></Tabs><div className="week-nav"><Button variant="outline" size="icon" onClick={() => setWeekOffset(value => value - 1)}><ChevronLeft size={18}/></Button><Button variant="outline" onClick={() => setWeekOffset(0)}>Heute</Button><Button variant="outline" size="icon" onClick={() => setWeekOffset(value => value + 1)}><ChevronRight size={18}/></Button></div><Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogTrigger asChild><Button><Plus size={18}/> Termin</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Neuer Termin</DialogTitle><DialogDescription>Lege fest, für wen der Termin ist und wer benachrichtigt wird.</DialogDescription></DialogHeader><form className="event-form" onSubmit={addCalendarEvent}><div><Label htmlFor="event-title">Titel</Label><Input id="event-title" name="title" placeholder="Was steht an?" required/></div><div className="form-row"><div><Label htmlFor="event-date">Datum</Label><Input id="event-date" name="date" type="date" defaultValue={format(new Date(), "yyyy-MM-dd")} required/></div><div><Label htmlFor="event-time">Uhrzeit</Label><Input id="event-time" name="time" type="time" defaultValue="10:00" required/></div></div><div><Label htmlFor="event-location">Ort</Label><Input id="event-location" name="location" placeholder="Optional"/></div><div className="form-row"><div><Label htmlFor="event-member">Termin für</Label><select id="event-member" name="member" defaultValue=""><option value="">Alle</option>{profiles.map(member => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select></div><div><Label htmlFor="event-reminder">Erinnern</Label><select id="event-reminder" name="reminder" defaultValue="30"><option value="0">Zum Termin</option><option value="5">5 Minuten vorher</option><option value="15">15 Minuten vorher</option><option value="30">30 Minuten vorher</option><option value="60">1 Stunde vorher</option><option value="1440">1 Tag vorher</option></select></div></div><fieldset className="notify-fieldset"><legend>Wer soll benachrichtigt werden?</legend><p>Mindestens eine Person auswählen.</p><div className="notify-options">{profiles.map(member => <label key={member.id}><Checkbox name="notify" value={member.id} defaultChecked/><span>{member.display_name}</span></label>)}</div></fieldset><Button type="submit">Termin speichern</Button></form></DialogContent></Dialog></div></div>
-      <div className="week-grid">{days.map(day => { const dayEvents = events.filter(item => isSameDay(new Date(item.startsAt), day)); const today = isSameDay(day, new Date()); return <article className={`day-column ${today ? "today" : ""}`} key={day.toISOString()}><header><span>{format(day, "EEE", { locale: de })}</span><strong>{format(day, "d")}</strong></header><div className="day-events">{dayEvents.map(item => <div className={`event-card ${item.color}`} key={item.id}><div className="event-time">{format(new Date(item.startsAt), "HH:mm")}{item.pending && <CloudOff size={12}/>}</div><strong>{item.title}</strong><span>{item.location}</span><small>{item.assigneeId ? nameById.get(item.assigneeId) : "Alle"} · 🔔 {item.notifyIds.map(id => nameById.get(id)).filter(Boolean).join(", ")}</small></div>)}{dayEvents.length === 0 && <div className="empty-slot"/>}</div></article>; })}</div><div className="legend">{profiles.map((member, index) => <span key={member.id}><i className={COLORS[index % COLORS.length]}/>{member.display_name}</span>)}<span><i className="green"/>Alle</span></div></div>
-      <aside className="side-panel"><section className="upcoming-section"><div className="section-heading"><div><p className="eyebrow">Im Blick</p><h2>Als Nächstes</h2></div><CalendarDays size={22}/></div><div className="upcoming-list">{upcoming.map(item => <article key={item.id}><div className={`date-chip ${item.color}`}><strong>{format(new Date(item.startsAt), "d")}</strong><span>{format(new Date(item.startsAt), "MMM", { locale: de })}</span></div><div><strong>{item.title}</strong><span>{format(new Date(item.startsAt), "HH:mm")}{item.location ? ` · ${item.location}` : ""}</span></div></article>)}{upcoming.length === 0 && <p className="empty-copy">Noch keine kommenden Termine.</p>}</div></section><section className="chat-section"><div className="section-heading"><div><p className="eyebrow">Familienchat</p><h2>Absprachen</h2></div><div className="chat-heading-actions">{profile.role === "adult" && <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="sm" disabled={!isOnline || messages.length === 0}><Trash2 size={15}/> Leeren</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Familienchat vollständig löschen?</AlertDialogTitle><AlertDialogDescription>Alle derzeit gespeicherten Chatnachrichten werden für die ganze Familie dauerhaft gelöscht. Dies kann nicht rückgängig gemacht werden.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Abbrechen</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={clearChat}>Chat löschen</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}<MessageCircle size={22}/></div></div><div className="messages">{messages.map(message => <div key={message.id} className={`message ${message.own ? "own" : ""}`}><span className="message-author">{message.author}</span><p>{message.text}</p><small>{format(new Date(message.createdAt), "HH:mm")}{message.pending ? " · wartet" : ""}</small></div>)}{messages.length === 0 && <p className="empty-copy">Noch keine Nachrichten.</p>}</div><form className="chat-input" onSubmit={sendMessage}><Input value={chatText} onChange={event => setChatText(event.target.value)} placeholder="Nachricht schreiben …" aria-label="Nachricht"/><Button size="icon" type="submit" aria-label="Nachricht senden"><Send size={17}/></Button></form></section></aside></section>
-    <nav className="mobile-nav"><button className="active"><CalendarDays/>Planer</button><button><MessageCircle/>Chat</button><button><Users/>Familie</button></nav></main>;
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <div className="top-brand">
+          <div className="brand-mark">
+            <Sparkles size={21} />
+            <span>WirZeit</span>
+          </div>
+          <span className="mobile-family-name">{FAMILY_NAME}</span>
+        </div>
+        <div className="family-title">
+          <strong>{profile.display_name}</strong>
+          <div className="avatar-stack">
+            {profiles.map((member, index) => (
+              <Avatar
+                key={member.id}
+                className={`member-avatar ${COLORS[index % COLORS.length]}`}
+              >
+                <AvatarFallback>{initials(member.display_name)}</AvatarFallback>
+              </Avatar>
+            ))}
+          </div>
+        </div>
+        <div className="top-actions">
+          <button className={`sync-state ${isOnline ? "online" : "offline"}`}>
+            {isOnline ? <Cloud size={16} /> : <CloudOff size={16} />}{" "}
+            {isOnline ? "Online" : "Offline"}
+          </button>
+          {profile.role === "adult" && (
+            <Dialog
+              open={adminOpen}
+              onOpenChange={(open) => {
+                setAdminOpen(open);
+                setPasswordError("");
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Familie verwalten"
+                >
+                  <KeyRound size={18} />
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Familie verwalten</DialogTitle>
+                  <DialogDescription>
+                    Als erwachsene Person kannst du für jedes Familienmitglied
+                    ein neues Passwort festlegen.
+                  </DialogDescription>
+                </DialogHeader>
+                <form className="event-form" onSubmit={resetFamilyPassword}>
+                  <div>
+                    <Label htmlFor="admin-member">Familienmitglied</Label>
+                    <select
+                      id="admin-member"
+                      name="profileId"
+                      defaultValue=""
+                      required
+                    >
+                      <option value="" disabled>
+                        Person auswählen
+                      </option>
+                      {profiles.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.display_name}
+                          {member.role === "adult" ? " · Erwachsen" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="admin-password">Neues Passwort</Label>
+                    <Input
+                      id="admin-password"
+                      name="password"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={10}
+                      required
+                    />
+                    <p className="field-hint">
+                      Mindestens 10 Zeichen. Das Passwort wird nicht in WirZeit
+                      gespeichert.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="admin-confirmation">
+                      Passwort wiederholen
+                    </Label>
+                    <Input
+                      id="admin-confirmation"
+                      name="confirmation"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={10}
+                      required
+                    />
+                  </div>
+                  {passwordError && (
+                    <p className="form-error" role="alert">
+                      {passwordError}
+                    </p>
+                  )}
+                  <Button type="submit" disabled={passwordBusy}>
+                    {passwordBusy
+                      ? "Passwort wird geändert …"
+                      : "Passwort neu setzen"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={requestNotifications}
+            aria-label="Browser-Benachrichtigungen aktivieren"
+          >
+            <Bell size={18} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={logout}
+            aria-label="Abmelden"
+          >
+            <LogOut size={18} />
+          </Button>
+        </div>
+      </header>
+      <div className="notice">
+        <Check size={14} /> {notice}
+      </div>
+      <section className="workspace">
+        <div
+          ref={calendarSectionRef}
+          className="calendar-panel"
+          onTouchStart={(event) => {
+            swipeStartX.current = event.changedTouches[0]?.clientX ?? null;
+          }}
+          onTouchEnd={(event) =>
+            finishSwipe(event.changedTouches[0]?.clientX ?? 0)
+          }
+        >
+          <div className="calendar-toolbar">
+            <div>
+              <p className="eyebrow">Familienkalender</p>
+              <Dialog open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <DialogTrigger asChild>
+                  <button
+                    className="calendar-label-button"
+                    aria-label="Monat und Jahr auswählen"
+                  >
+                    {calendarLabel}
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Monat auswählen</DialogTitle>
+                    <DialogDescription>
+                      Springe direkt zu einem Monat und Jahr.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form className="event-form" onSubmit={chooseMonth}>
+                    <div className="form-row">
+                      <div>
+                        <Label htmlFor="picker-month">Monat</Label>
+                        <select
+                          id="picker-month"
+                          name="month"
+                          defaultValue={monthStart.getMonth()}
+                        >
+                          {Array.from({ length: 12 }, (_, index) => (
+                            <option key={index} value={index}>
+                              {format(new Date(2024, index, 1), "MMMM", {
+                                locale: de,
+                              })}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="picker-year">Jahr</Label>
+                        <select
+                          id="picker-year"
+                          name="year"
+                          defaultValue={monthStart.getFullYear()}
+                        >
+                          {pickerYears.map((year) => (
+                            <option key={year} value={year}>
+                              {year}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <Button type="submit">Monat anzeigen</Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="toolbar-actions">
+              <Tabs
+                value={calendarView}
+                onValueChange={(value) =>
+                  setCalendarView(value as "week" | "month")
+                }
+              >
+                <TabsList>
+                  <TabsTrigger value="week">Woche</TabsTrigger>
+                  <TabsTrigger value="month">Monat</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <div className="week-nav">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => moveCalendar(-1)}
+                  aria-label={
+                    calendarView === "week"
+                      ? "Vorherige Woche"
+                      : "Vorheriger Monat"
+                  }
+                >
+                  <ChevronLeft size={18} />
+                </Button>
+                <Button variant="outline" onClick={showToday}>
+                  Heute
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => moveCalendar(1)}
+                  aria-label={
+                    calendarView === "week" ? "Nächste Woche" : "Nächster Monat"
+                  }
+                >
+                  <ChevronRight size={18} />
+                </Button>
+              </div>
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus size={18} /> Termin
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Neuer Termin</DialogTitle>
+                    <DialogDescription>
+                      Lege fest, für wen der Termin ist und wer benachrichtigt
+                      wird.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form className="event-form" onSubmit={addCalendarEvent}>
+                    <div>
+                      <Label htmlFor="event-title">Titel</Label>
+                      <Input
+                        id="event-title"
+                        name="title"
+                        placeholder="Was steht an?"
+                        required
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div>
+                        <Label htmlFor="event-date">Datum</Label>
+                        <Input
+                          id="event-date"
+                          name="date"
+                          type="date"
+                          defaultValue={format(new Date(), "yyyy-MM-dd")}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="event-time">Uhrzeit</Label>
+                        <Input
+                          id="event-time"
+                          name="time"
+                          type="time"
+                          defaultValue="10:00"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="event-location">Ort</Label>
+                      <Input
+                        id="event-location"
+                        name="location"
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div className="form-row">
+                      <div>
+                        <Label htmlFor="event-member">Termin für</Label>
+                        <select id="event-member" name="member" defaultValue="">
+                          <option value="">Alle</option>
+                          {profiles.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.display_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="event-reminder">Erinnern</Label>
+                        <select
+                          id="event-reminder"
+                          name="reminder"
+                          defaultValue="30"
+                        >
+                          <option value="0">Zum Termin</option>
+                          <option value="5">5 Minuten vorher</option>
+                          <option value="15">15 Minuten vorher</option>
+                          <option value="30">30 Minuten vorher</option>
+                          <option value="60">1 Stunde vorher</option>
+                          <option value="1440">1 Tag vorher</option>
+                        </select>
+                      </div>
+                    </div>
+                    <fieldset className="notify-fieldset">
+                      <legend>Wer soll benachrichtigt werden?</legend>
+                      <p>Mindestens eine Person auswählen.</p>
+                      <div className="notify-options">
+                        {profiles.map((member) => (
+                          <label key={member.id}>
+                            <Checkbox
+                              name="notify"
+                              value={member.id}
+                              defaultChecked
+                            />
+                            <span>{member.display_name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <Button type="submit">Termin speichern</Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+          {calendarView === "week" ? (
+            <div className="week-grid">
+              {days.map((day) => {
+                const dayEvents = events.filter((item) =>
+                  isSameDay(new Date(item.startsAt), day),
+                );
+                const today = isSameDay(day, new Date());
+                return (
+                  <article
+                    className={`day-column ${today ? "today" : ""}`}
+                    key={day.toISOString()}
+                  >
+                    <header>
+                      <span>{format(day, "EEE", { locale: de })}</span>
+                      <strong>{format(day, "d")}</strong>
+                    </header>
+                    <div className="day-events">
+                      {dayEvents.map((item) => (
+                        <div
+                          className={`event-card ${item.color}`}
+                          key={item.id}
+                        >
+                          <div className="event-time">
+                            {format(new Date(item.startsAt), "HH:mm")}
+                            {item.pending && <CloudOff size={12} />}
+                          </div>
+                          <strong>{item.title}</strong>
+                          <span>{item.location}</span>
+                          <small>
+                            {item.assigneeId
+                              ? nameById.get(item.assigneeId)
+                              : "Alle"}{" "}
+                            · 🔔{" "}
+                            {item.notifyIds
+                              .map((id) => nameById.get(id))
+                              .filter(Boolean)
+                              .join(", ")}
+                          </small>
+                        </div>
+                      ))}
+                      {dayEvents.length === 0 && <div className="empty-slot" />}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <section className="month-view">
+              <div className="month-weekdays">
+                {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+              <div className="month-grid">
+                {monthDays.map((day) => {
+                  const dayEvents = events.filter((item) =>
+                    isSameDay(new Date(item.startsAt), day),
+                  );
+                  const today = isSameDay(day, new Date());
+                  const outside = day.getMonth() !== monthStart.getMonth();
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      className={`month-day ${today ? "today" : ""} ${outside ? "outside" : ""}`}
+                      onClick={() => openDay(day)}
+                    >
+                      <span>{format(day, "d")}</span>
+                      <div className="month-dots">
+                        {dayEvents.slice(0, 4).map((item) => (
+                          <i key={item.id} className={item.color} />
+                        ))}
+                      </div>
+                      {dayEvents.length > 0 && (
+                        <small>
+                          {dayEvents.length}{" "}
+                          {dayEvents.length === 1 ? "Termin" : "Termine"}
+                        </small>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          <div className="legend">
+            {profiles.map((member, index) => (
+              <span key={member.id}>
+                <i className={COLORS[index % COLORS.length]} />
+                {member.display_name}
+              </span>
+            ))}
+            <span>
+              <i className="green" />
+              Alle
+            </span>
+          </div>
+        </div>
+        <aside className="side-panel">
+          <section className="upcoming-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Im Blick</p>
+                <h2>Als Nächstes</h2>
+              </div>
+              <CalendarDays size={22} />
+            </div>
+            <div className="upcoming-list">
+              {upcoming.map((item) => (
+                <article key={item.id}>
+                  <div className={`date-chip ${item.color}`}>
+                    <strong>{format(new Date(item.startsAt), "d")}</strong>
+                    <span>
+                      {format(new Date(item.startsAt), "MMM", { locale: de })}
+                    </span>
+                  </div>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>
+                      {format(new Date(item.startsAt), "HH:mm")}
+                      {item.location ? ` · ${item.location}` : ""}
+                    </span>
+                  </div>
+                </article>
+              ))}
+              {upcoming.length === 0 && (
+                <p className="empty-copy">Noch keine kommenden Termine.</p>
+              )}
+            </div>
+          </section>
+          <section ref={chatSectionRef} className="chat-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Familienchat</p>
+                <h2>Absprachen</h2>
+              </div>
+              <div className="chat-heading-actions">
+                {profile.role === "adult" && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!isOnline || messages.length === 0}
+                      >
+                        <Trash2 size={15} /> Leeren
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Familienchat vollständig löschen?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Alle derzeit gespeicherten Chatnachrichten werden für
+                          die ganze Familie dauerhaft gelöscht. Dies kann nicht
+                          rückgängig gemacht werden.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={clearChat}
+                        >
+                          Chat löschen
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                <MessageCircle size={22} />
+              </div>
+            </div>
+            <div className="messages">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`message ${message.own ? "own" : ""}`}
+                >
+                  <span className="message-author">{message.author}</span>
+                  <p>{message.text}</p>
+                  <small>
+                    {format(new Date(message.createdAt), "HH:mm")}
+                    {message.pending ? " · wartet" : ""}
+                  </small>
+                </div>
+              ))}
+              {messages.length === 0 && (
+                <p className="empty-copy">Noch keine Nachrichten.</p>
+              )}
+            </div>
+            <form className="chat-input" onSubmit={sendMessage}>
+              <Input
+                value={chatText}
+                onChange={(event) => setChatText(event.target.value)}
+                placeholder="Nachricht schreiben …"
+                aria-label="Nachricht"
+              />
+              <Button size="icon" type="submit" aria-label="Nachricht senden">
+                <Send size={17} />
+              </Button>
+            </form>
+          </section>
+        </aside>
+      </section>
+      <Dialog
+        open={familyOpen}
+        onOpenChange={(open) => {
+          setFamilyOpen(open);
+          if (!open) setMobileSection("planner");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unsere Familie</DialogTitle>
+            <DialogDescription>
+              Alle Personen mit einem eigenen WirZeit-Zugang.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="family-overview">
+            {profiles.map((member, index) => (
+              <div className="family-member-row" key={member.id}>
+                <Avatar className={`member-avatar ${COLORS[index % COLORS.length]}`}>
+                  <AvatarFallback>{initials(member.display_name)}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <strong>{member.display_name}</strong>
+                  <span>{member.role === "adult" ? "Erwachsen" : "Kind"}</span>
+                </div>
+                {member.id === profile.id && <Badge variant="secondary">Du</Badge>}
+              </div>
+            ))}
+          </div>
+          {profile.role === "adult" && (
+            <Button
+              type="button"
+              onClick={() => {
+                setFamilyOpen(false);
+                setAdminOpen(true);
+              }}
+            >
+              <KeyRound size={17} /> Passwörter verwalten
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
+      <nav className="mobile-nav" aria-label="Hauptnavigation">
+        <button
+          type="button"
+          className={mobileSection === "planner" ? "active" : ""}
+          aria-current={mobileSection === "planner" ? "page" : undefined}
+          onClick={() => showMobileSection("planner")}
+        >
+          <CalendarDays />
+          Planer
+        </button>
+        <button
+          type="button"
+          className={mobileSection === "chat" ? "active" : ""}
+          aria-current={mobileSection === "chat" ? "page" : undefined}
+          onClick={() => showMobileSection("chat")}
+        >
+          <MessageCircle />
+          Chat
+        </button>
+        <button
+          type="button"
+          className={mobileSection === "family" ? "active" : ""}
+          aria-current={mobileSection === "family" ? "page" : undefined}
+          onClick={() => showMobileSection("family")}
+        >
+          <Users />
+          Familie
+        </button>
+      </nav>
+    </main>
+  );
 }
