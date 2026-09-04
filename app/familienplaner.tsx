@@ -1078,6 +1078,14 @@ export function Familienplaner() {
             {isOnline ? <Cloud size={16} /> : <CloudOff size={16} />}{" "}
             {isOnline ? "Online" : "Offline"}
           </button>
+          <div
+            key={notice}
+            className="notice"
+            role="status"
+            aria-live="polite"
+          >
+            <Check size={14} /> {notice}
+          </div>
           {profile.role === "adult" && (
             <Dialog
               open={adminOpen}
@@ -1183,9 +1191,6 @@ export function Familienplaner() {
           </Button>
         </div>
       </header>
-      <div className="notice">
-        <Check size={14} /> {notice}
-      </div>
       <section className="workspace">
         <div
           ref={calendarSectionRef}
