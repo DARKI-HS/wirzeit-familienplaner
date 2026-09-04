@@ -78,7 +78,7 @@ type FamilyEvent = {
   assigneeId: string | null;
   color: MemberColor;
   location?: string;
-  reminderMinutes: number;
+  reminderMinutes: number[];
   notifyIds: string[];
   pending?: boolean;
 };
@@ -96,7 +96,7 @@ type EventDraft = {
   startsAt: string;
   assigneeId: string | null;
   location: string;
-  reminderMinutes: number;
+  reminderMinutes: number[];
   notifyIds: string[];
 };
 type MessageDraft = { text: string };
@@ -122,6 +122,14 @@ const LOGIN_EMAILS: Record<string, string> = {
   henry: "henry@familienplaner.schuhmacher-jens.chatgpt.site",
 };
 const COLORS: MemberColor[] = ["blue", "coral", "gold", "purple"];
+const REMINDER_OPTIONS = [
+  { value: 0, label: "Zum Termin" },
+  { value: 5, label: "5 Minuten vorher" },
+  { value: 15, label: "15 Minuten vorher" },
+  { value: 30, label: "30 Minuten vorher" },
+  { value: 60, label: "1 Stunde vorher" },
+  { value: 1440, label: "1 Tag vorher" },
+];
 const QUEUE_KEY = "wirzeit-offline-queue";
 const AUTH_STORAGE_KEY = "wirzeit-auth-session-v1";
 const LEGACY_AUTH_STORAGE_KEY = "sb-nahkeogrdxdyakowqcqz-auth-token";
@@ -220,6 +228,8 @@ export function Familienplaner() {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [chatText, setChatText] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editEvent, setEditEvent] = useState<FamilyEvent | null>(null);
+  const [eventBusy, setEventBusy] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [familyOpen, setFamilyOpen] = useState(false);
   const [mobileSection, setMobileSection] = useState<
@@ -300,7 +310,9 @@ export function Familienplaner() {
             .order("display_name"),
           client
             .from("events")
-            .select("id,title,starts_at,location,assignee_id,reminder_minutes")
+            .select(
+              "id,title,starts_at,location,assignee_id,reminder_minutes,reminder_offsets",
+            )
             .eq("family_id", current.family_id)
             .order("starts_at"),
           client.from("event_recipients").select("event_id,profile_id"),
@@ -344,7 +356,10 @@ export function Familienplaner() {
               ]
             : "green",
           location: row.location ?? "",
-          reminderMinutes: row.reminder_minutes,
+          reminderMinutes:
+            Array.isArray(row.reminder_offsets) && row.reminder_offsets.length
+              ? row.reminder_offsets
+              : [row.reminder_minutes],
           notifyIds: recipientMap.get(row.id) ?? [],
         }),
       );
@@ -384,7 +399,8 @@ export function Familienplaner() {
           starts_at: draft.startsAt,
           location: draft.location || null,
           assignee_id: draft.assigneeId,
-          reminder_minutes: draft.reminderMinutes,
+          reminder_minutes: draft.reminderMinutes[0] ?? 30,
+          reminder_offsets: draft.reminderMinutes,
         })
         .select("id")
         .single();
@@ -761,8 +777,13 @@ export function Familienplaner() {
     if (!profile || !supabase) return;
     const data = new FormData(event.currentTarget);
     const notifyIds = data.getAll("notify").map(String);
+    const reminderMinutes = data.getAll("reminder").map(Number);
     if (!notifyIds.length) {
       setNotice("Bitte mindestens eine Person für die Erinnerung wählen");
+      return;
+    }
+    if (!reminderMinutes.length) {
+      setNotice("Bitte mindestens eine Erinnerungszeit wählen");
       return;
     }
     const draft: EventDraft = {
@@ -772,7 +793,7 @@ export function Familienplaner() {
       ).toISOString(),
       assigneeId: String(data.get("member")) || null,
       location: String(data.get("location") ?? ""),
-      reminderMinutes: Number(data.get("reminder")),
+      reminderMinutes,
       notifyIds,
     };
     setDialogOpen(false);
@@ -806,6 +827,74 @@ export function Familienplaner() {
         },
       ]);
       setNotice("Termin wartet auf Synchronisierung");
+    }
+  }
+
+  async function updateCalendarEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile || !supabase || !editEvent || eventBusy) return;
+    const data = new FormData(event.currentTarget);
+    const notifyIds = data.getAll("notify").map(String);
+    const reminderMinutes = data.getAll("reminder").map(Number);
+    if (!notifyIds.length || !reminderMinutes.length) {
+      setNotice("Bitte Personen und mindestens eine Erinnerungszeit wählen");
+      return;
+    }
+    setEventBusy(true);
+    const draft: EventDraft = {
+      title: String(data.get("title")),
+      startsAt: new Date(`${data.get("date")}T${data.get("time")}:00`).toISOString(),
+      assigneeId: String(data.get("member")) || null,
+      location: String(data.get("location") ?? ""),
+      reminderMinutes,
+      notifyIds,
+    };
+    try {
+      const { error } = await supabase
+        .from("events")
+        .update({
+          title: draft.title,
+          starts_at: draft.startsAt,
+          location: draft.location || null,
+          assignee_id: draft.assigneeId,
+          reminder_minutes: draft.reminderMinutes[0] ?? 30,
+          reminder_offsets: draft.reminderMinutes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editEvent.id);
+      if (error) throw error;
+      const { error: deleteError } = await supabase
+        .from("event_recipients")
+        .delete()
+        .eq("event_id", editEvent.id);
+      if (deleteError) throw deleteError;
+      const { error: recipientError } = await supabase
+        .from("event_recipients")
+        .insert(notifyIds.map((profileId) => ({ event_id: editEvent.id, profile_id: profileId })));
+      if (recipientError) throw recipientError;
+      await loadFamilyData(supabase, profile);
+      setEditEvent(null);
+      setNotice("Termin wurde geändert");
+    } catch {
+      setNotice("Termin konnte nicht geändert werden");
+    } finally {
+      setEventBusy(false);
+    }
+  }
+
+  async function deleteCalendarEvent() {
+    if (!profile || !supabase || !editEvent || eventBusy) return;
+    setEventBusy(true);
+    try {
+      const { error } = await supabase.from("events").delete().eq("id", editEvent.id);
+      if (error) throw error;
+      await loadFamilyData(supabase, profile);
+      setEditEvent(null);
+      setNotice("Termin wurde gelöscht");
+    } catch {
+      setNotice("Termin konnte nicht gelöscht werden");
+    } finally {
+      setEventBusy(false);
     }
   }
 
@@ -1191,6 +1280,85 @@ export function Familienplaner() {
           </Button>
         </div>
       </header>
+      <Dialog open={Boolean(editEvent)} onOpenChange={(open) => !open && setEditEvent(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Termin bearbeiten</DialogTitle>
+            <DialogDescription>
+              Ändere den Termin oder lösche ihn dauerhaft.
+            </DialogDescription>
+          </DialogHeader>
+          {editEvent && (
+            <form className="event-form" onSubmit={updateCalendarEvent}>
+              <div>
+                <Label htmlFor="edit-event-title">Titel</Label>
+                <Input id="edit-event-title" name="title" defaultValue={editEvent.title} required />
+              </div>
+              <div className="form-row">
+                <div>
+                  <Label htmlFor="edit-event-date">Datum</Label>
+                  <Input id="edit-event-date" name="date" type="date" defaultValue={format(new Date(editEvent.startsAt), "yyyy-MM-dd")} required />
+                </div>
+                <div>
+                  <Label htmlFor="edit-event-time">Uhrzeit</Label>
+                  <Input id="edit-event-time" name="time" type="time" defaultValue={format(new Date(editEvent.startsAt), "HH:mm")} required />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="edit-event-location">Ort</Label>
+                <Input id="edit-event-location" name="location" defaultValue={editEvent.location} placeholder="Optional" />
+              </div>
+              <div>
+                <Label htmlFor="edit-event-member">Termin für</Label>
+                <select id="edit-event-member" name="member" defaultValue={editEvent.assigneeId ?? ""}>
+                  <option value="">Alle</option>
+                  {profiles.map((member) => <option key={member.id} value={member.id}>{member.display_name}</option>)}
+                </select>
+              </div>
+              <fieldset className="reminder-fieldset">
+                <legend>Erinnerungen</legend>
+                <div className="reminder-options">
+                  {REMINDER_OPTIONS.map((option) => (
+                    <label key={option.value}>
+                      <Checkbox name="reminder" value={String(option.value)} defaultChecked={editEvent.reminderMinutes.includes(option.value)} />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset className="notify-fieldset">
+                <legend>Wer soll benachrichtigt werden?</legend>
+                <div className="notify-options">
+                  {profiles.map((member) => (
+                    <label key={member.id}>
+                      <Checkbox name="notify" value={member.id} defaultChecked={editEvent.notifyIds.includes(member.id)} />
+                      <span>{member.display_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="event-edit-actions">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="destructive" disabled={eventBusy}><Trash2 size={16} /> Termin löschen</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Termin wirklich löschen?</AlertDialogTitle>
+                      <AlertDialogDescription>„{editEvent.title}“ wird für die ganze Familie dauerhaft gelöscht.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                      <AlertDialogAction variant="destructive" onClick={deleteCalendarEvent}>Endgültig löschen</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <Button type="submit" disabled={eventBusy}>{eventBusy ? "Wird gespeichert …" : "Änderungen speichern"}</Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
       <section className="workspace">
         <div
           ref={calendarSectionRef}
@@ -1364,21 +1532,19 @@ export function Familienplaner() {
                           ))}
                         </select>
                       </div>
-                      <div>
-                        <Label htmlFor="event-reminder">Erinnern</Label>
-                        <select
-                          id="event-reminder"
-                          name="reminder"
-                          defaultValue="30"
-                        >
-                          <option value="0">Zum Termin</option>
-                          <option value="5">5 Minuten vorher</option>
-                          <option value="15">15 Minuten vorher</option>
-                          <option value="30">30 Minuten vorher</option>
-                          <option value="60">1 Stunde vorher</option>
-                          <option value="1440">1 Tag vorher</option>
-                        </select>
-                      </div>
+                      <fieldset className="reminder-fieldset">
+                        <legend>Erinnern</legend>
+                        {REMINDER_OPTIONS.map((option) => (
+                          <label key={option.value}>
+                            <Checkbox
+                              name="reminder"
+                              value={String(option.value)}
+                              defaultChecked={option.value === 30}
+                            />
+                            <span>{option.label}</span>
+                          </label>
+                        ))}
+                      </fieldset>
                     </div>
                     <fieldset className="notify-fieldset">
                       <legend>Wer soll benachrichtigt werden?</legend>
@@ -1420,9 +1586,12 @@ export function Familienplaner() {
                     </header>
                     <div className="day-events">
                       {dayEvents.map((item) => (
-                        <div
+                        <button
+                          type="button"
                           className={`event-card ${item.color}`}
                           key={item.id}
+                          onClick={() => !item.pending && setEditEvent(item)}
+                          aria-label={`${item.title} bearbeiten`}
                         >
                           <div className="event-time">
                             {format(new Date(item.startsAt), "HH:mm")}
@@ -1440,7 +1609,7 @@ export function Familienplaner() {
                               .filter(Boolean)
                               .join(", ")}
                           </small>
-                        </div>
+                        </button>
                       ))}
                       {dayEvents.length === 0 && <div className="empty-slot" />}
                     </div>

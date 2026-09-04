@@ -111,17 +111,21 @@ async function sendReminderPush() {
     const delivered = await sendToProfiles([reminder.profile_id], {
       title: `Termin: ${reminder.title}`,
       body,
-      tag: `event-${reminder.event_id}`,
+      tag: `event-${reminder.event_id}-${reminder.reminder_minutes}`,
       url: APP_URL,
     });
 
     if (delivered > 0) {
       await admin.from("reminder_deliveries").update({ sent_at: new Date().toISOString() })
-        .eq("event_id", reminder.event_id).eq("profile_id", reminder.profile_id);
+        .eq("event_id", reminder.event_id)
+        .eq("profile_id", reminder.profile_id)
+        .eq("reminder_minutes", reminder.reminder_minutes);
       sent += delivered;
     } else {
       await admin.from("reminder_deliveries").delete()
-        .eq("event_id", reminder.event_id).eq("profile_id", reminder.profile_id);
+        .eq("event_id", reminder.event_id)
+        .eq("profile_id", reminder.profile_id)
+        .eq("reminder_minutes", reminder.reminder_minutes);
     }
   }
   return { kind: "reminders", sent, claimed: reminders?.length ?? 0 };
