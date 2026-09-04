@@ -1359,6 +1359,22 @@ export function Familienplaner() {
           )}
         </DialogContent>
       </Dialog>
+      <div className="legend" aria-label="Farben der Familienmitglieder">
+        {profiles.map((member, index) => {
+          const color = COLORS[index % COLORS.length];
+
+          return (
+            <span className={`legend-chip ${color}`} key={member.id}>
+              <i className={color} />
+              {member.display_name}
+            </span>
+          );
+        })}
+        <span className="legend-chip green">
+          <i className="green" />
+          Alle
+        </span>
+      </div>
       <section className="workspace">
         <div
           ref={calendarSectionRef}
@@ -1655,18 +1671,6 @@ export function Familienplaner() {
               </div>
             </section>
           )}
-          <div className="legend">
-            {profiles.map((member, index) => (
-              <span key={member.id}>
-                <i className={COLORS[index % COLORS.length]} />
-                {member.display_name}
-              </span>
-            ))}
-            <span>
-              <i className="green" />
-              Alle
-            </span>
-          </div>
         </div>
         <aside className="side-panel">
           <section className="upcoming-section">
@@ -1744,6 +1748,17 @@ export function Familienplaner() {
                 <MessageCircle size={22} />
               </div>
             </div>
+            <form className="chat-input" onSubmit={sendMessage}>
+              <Input
+                value={chatText}
+                onChange={(event) => setChatText(event.target.value)}
+                placeholder="Nachricht schreiben …"
+                aria-label="Nachricht"
+              />
+              <Button size="icon" type="submit" aria-label="Nachricht senden">
+                <Send size={17} />
+              </Button>
+            </form>
             <div className="messages">
               {messages.map((message) => (
                 <div
@@ -1762,17 +1777,6 @@ export function Familienplaner() {
                 <p className="empty-copy">Noch keine Nachrichten.</p>
               )}
             </div>
-            <form className="chat-input" onSubmit={sendMessage}>
-              <Input
-                value={chatText}
-                onChange={(event) => setChatText(event.target.value)}
-                placeholder="Nachricht schreiben …"
-                aria-label="Nachricht"
-              />
-              <Button size="icon" type="submit" aria-label="Nachricht senden">
-                <Send size={17} />
-              </Button>
-            </form>
           </section>
         </aside>
       </section>

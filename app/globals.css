@@ -428,15 +428,56 @@ body {
 .legend {
   display: flex;
   align-items: center;
-  gap: 1.2rem;
-  padding: 1rem 0.2rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.7rem 1rem;
   font-size: 0.75rem;
   color: #667086;
+  background: rgb(246 248 251 / 96%);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 72px;
+  z-index: 9;
+  backdrop-filter: blur(12px);
 }
 .legend span {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
+  min-width: 76px;
+  padding: 0.42rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  font-weight: 750;
+  background: #fff;
+  box-shadow: 0 2px 8px #1d2c510a;
+}
+.legend-chip.blue {
+  background: #e7edff;
+  border-color: #cbd7ff;
+  color: #3156d3;
+}
+.legend-chip.coral {
+  background: #fff0ed;
+  border-color: #ffd7d0;
+  color: #bd5544;
+}
+.legend-chip.gold {
+  background: #fff4d2;
+  border-color: #f3df9d;
+  color: #946500;
+}
+.legend-chip.purple {
+  background: #f1eaff;
+  border-color: #dfd0fb;
+  color: #6a3db5;
+}
+.legend-chip.green {
+  background: #e6f5ec;
+  border-color: #c7e6d3;
+  color: #247653;
 }
 .legend i {
   width: 8px;
@@ -540,6 +581,7 @@ body {
   gap: 0.8rem;
   flex: 1;
   overflow: auto;
+  padding-top: 0.9rem;
 }
 .message {
   max-width: 88%;
@@ -580,7 +622,7 @@ body {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.45rem;
-  margin-top: 1rem;
+  margin: -0.15rem 0 0;
 }
 .event-form {
   display: grid;
@@ -742,7 +784,19 @@ body {
     text-align: center;
   }
   .legend {
-    overflow: auto;
+    top: 62px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0.55rem 0.75rem;
+  }
+  .legend::-webkit-scrollbar {
+    display: none;
+  }
+  .legend span {
+    flex: 0 0 auto;
+    min-width: 82px;
   }
   .calendar-toolbar .toolbar-actions {
     flex-wrap: wrap;
@@ -852,9 +906,6 @@ body {
   }
   .event-card {
     min-height: 0;
-  }
-  .legend {
-    padding-bottom: 0.25rem;
   }
 }
 
